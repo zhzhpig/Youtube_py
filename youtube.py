@@ -712,6 +712,51 @@ def load_questions_from_file(file_path):
             error_log.append(f"创建常见问题{file_path}文本错误: {e}")
 
 
+def check_for_updates():
+    # 获取最新版本号
+    latest_version = get_latest_version()
+    
+    # 比较版本号
+    if app_version != latest_version:
+        print(f"New version available: {latest_version}")
+        download_update(latest_version)
+    else:
+        print("You are running the latest version.")
+
+def get_latest_version():
+    headers = {
+        'Authorization': f'token {GIT_TOKEN}',
+    }
+    url = "https://api.github.com/repos/zhzhpig/Youtube_py/releases/latest"
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            return data["tag_name"]
+        else:
+            logger.error(f"获取最新版本号失败，使用当前版本号{app_version}")
+            error_log.append(f"获取最新版本号失败，使用当前版本号{app_version}")
+            return app_version
+    except Exception as e:
+        logger.error(f"请求{url}失败，错误为{e}，使用当前版本号{app_version}")
+        error_log.append(f"请求{url}失败，错误为{e}，使用当前版本号{app_version}")
+        return app_version
+
+def download_update(version):
+    # 下载最新版本
+    headers = {
+        'Authorization': f'token {GIT_TOKEN}',
+    }
+    url = f"https://github.com/zhzhpig/Youtube_py/releases/download/{version}/youtube.exe"
+    response = requests.get(url,headers=headers)
+    if response.status_code == 200:
+        with open("youtube.py", "wb") as f:
+            f.write(response.content)
+        print("Update downloaded successfully.")
+    else:
+        print("Failed to download update.")
+
+
 if __name__ == '__main__':
     # 全局变量
     global_thread = None
@@ -726,6 +771,7 @@ if __name__ == '__main__':
     icon_path = os.path.join(default_ico_directory, 'image.ico')
     error_log = []
     default_word_pos = ['n','d','NN','NNS','v','a','JJR','JJS','r','j']
+    GIT_TOKEN = os.environ.get('GITHUB_TOKEN')
     # 版本信息
     app_version = 'v1.9.3'
     app_title = f'爬YouTube评论软件{app_version} | 论文版'
@@ -839,6 +885,8 @@ if __name__ == '__main__':
     # 创建主窗口
     root = tk.Tk()
     root.title(app_title)
+
+    check_for_updates()
     #聚焦事件
     def on_focus_in(event,widget,default_text):
         """当获得焦点时，如果文本等于默认文本，则清空文本"""
