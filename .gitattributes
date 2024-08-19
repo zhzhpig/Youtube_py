@@ -5,3 +5,4 @@ build/youtube/youtube.pkg filter=lfs diff=lfs merge=lfs -text
 youtube.exe filter=lfs
 build/youtube/youtube.pkg filter=lfs
 >>>>>>> master
+*.exe filter=lfs diff=lfs merge=lfs -text
