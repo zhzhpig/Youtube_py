@@ -1,0 +1,2 @@
+youtube.exe filter=lfs diff=lfs merge=lfs -text
+build/youtube/youtube.pkg filter=lfs diff=lfs merge=lfs -text
