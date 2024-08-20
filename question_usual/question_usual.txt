@@ -1,0 +1,12 @@
+[
+    {
+        "pic_url": "http_error.jpg",
+        "error_msg": "HTTPSConnectionPool",
+        "error_msg_zh": "\u7f51\u7edc\u8fde\u63a5\u6709\u95ee\u9898\uff0c\u68c0\u67e5vpn"
+    },
+    {
+        "pic_url": "data_error.png",
+        "error_msg": "cannot access local variable 'data' where it is not associated with a value",
+        "error_msg_zh": "\u63a5\u53e3\u53c2\u6570\u9519\u8bef\uff0c\u6839\u636e\u4e0a\u9762\u65e5\u5fd7\u7684reason\u5b9a\u4f4d\u662f\u54ea\u4e2a\u53c2\u6570\u9519\u8bef\uff0c\u7136\u540e\u4fee\u6539\uff0c\u5982\u56fe\u662freason\u662fAPI_KEY_INVALID\uff0c\u5219\u8bf4\u660e\u662fAPI_KEY\u65e0\u6548\uff0c\u68c0\u67e5\u4f60\u7684APIkey"
+    }
+]
