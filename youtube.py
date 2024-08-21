@@ -562,12 +562,16 @@ def main():
             draw_pip_chart(new_comments_df,db_name)
             draw_wordcloud(new_comments_df,db_name)
         logger.info(f"程序执行完成！")
-        export_logs_to_file(default_log_directory,"error")
+        # 导出日志
         export_logs_to_file(default_log_directory,"info")
+        export_logs_to_file(default_log_directory,"error")
         run_button.config(state=tk.NORMAL)
         stop_button.config(state=tk.NORMAL)
     
 def run_program(run_button,stop_button):
+    # 将运行前日志先导出一份
+    export_logs_to_file(default_log_directory,"info")
+    export_logs_to_file(default_log_directory,"error")
     global error_log
     error_log = []
     # 设置按钮为不可点击状态
@@ -715,9 +719,10 @@ def load_questions_from_file(file_path):
             logger.error(f"创建常见问题{file_path}文本错误: {e}")
             error_log.append(f"创建常见问题{file_path}文本错误: {e}")
 
+# 检查更新
 def check_for_updates():
-    # 获取最新版本号
-    latest_version = get_latest_version()
+    # 获取最新版本号和安装包的下载链接
+    latest_version,latest_url = get_latest_version()
     
     # 比较版本号
     if app_version != latest_version:
@@ -725,7 +730,7 @@ def check_for_updates():
         # 显示弹窗询问用户是否继续
         should_download = askyesno("是否更新", f"检测新版本({latest_version})已就绪，是否选择更新？")
         if should_download:
-            download_update(latest_version)
+            download_update(latest_version,latest_url)
         else:
             logger.info(f'用户取消更新版本{latest_version}，当前版本为：{app_version}')
     else:
@@ -735,29 +740,47 @@ def get_latest_version():
     headers = {
         'Authorization': f'token {GIT_TOKEN}',
     }
-    url = "https://api.github.com/repos/zhzhpig/Youtube_py/releases/latest"
+    url = f"{version_url}/latest"
     try:
         response = requests.get(url, headers=headers,timeout=5)
         if response.status_code == 200:
             data = response.json()
-            return data["tag_name"]
+            tag_name = data["tag_name"]
+            # 检查 assets 是否存在且长度大于 0
+            if "assets" in data and len(data["assets"]) > 0:
+                download_url = data["assets"][0]["browser_download_url"]
+            else:
+                logger.error(f"资产安装包不存在，使用当前版本号{app_version}")
+                error_log.append(f"资产安装包不存在，使用当前版本号{app_version}")
+                tag_name = app_version
+                download_url = None
+            return tag_name, download_url
         else:
-            logger.error(f"获取最新版本号失败，使用当前版本号{app_version}")
-            error_log.append(f"获取最新版本号失败，使用当前版本号{app_version}")
-            return app_version
+            logger.error(f"获取最新版本号失败，error_code{response.status_code}，使用当前版本号{app_version}")
+            error_log.append(f"获取最新版本号失败，error_code{response.status_code}，使用当前版本号{app_version}")
+            return app_version,None
     except Exception as e:
         logger.error(f"请求{url}失败，错误为{e}，使用当前版本号{app_version}")
         error_log.append(f"请求{url}失败，错误为{e}，使用当前版本号{app_version}")
-        return app_version
+        return app_version,None
 
-def download_file(response,version, file_path, total_length, progress_bar, progress_window):
+def download_file(response,downloaded,version, file_path, total_length, progress_bar, progress_window):
+    if downloaded > 0:
+        progress_bar['value'] = (downloaded / total_length) * 100
+        total_length+=downloaded
+        if downloaded >= total_length:
+            logger.info(f"文件{file_path}已下载完成，无需再次下载")
+            progress_window.destroy()
+            return
     try:
-        start_time = time.time()  # 记录开始时间
-        last_time = start_time
-        last_downloaded = 0
-        with open(file_path, "wb") as f:
+        # 打开文件，如果存在则追加模式
+        mode = 'ab' if downloaded > 0 else 'wb'
+        with open(file_path, mode) as f:
+            start_time = time.time()  # 记录开始时间
+            last_time = start_time
+            last_downloaded = 0
             chunk_size = 1024
-            downloaded = 0
+
             for data in response.iter_content(chunk_size=chunk_size):
                 size = f.write(data)
                 downloaded += size
@@ -785,44 +808,51 @@ def download_file(response,version, file_path, total_length, progress_bar, progr
                     update_progress_bar(downloaded, total_length, progress_bar, progress_window)
                 else:
                     update_progress_bar(downloaded, total_length, progress_bar, progress_window)
+        progress_window.destroy()
         logger.info(f"更新最新版本{version},成功!保存位置为：{file_path}")
     except Exception as e:
         logger.error(f"写入最新版本失败，错误为{e}")
         error_log.append(f"写入最新版本失败，错误为{e}")
+        progress_window.destroy()
 
 def update_progress_bar(downloaded, total_length, progress_bar, progress_window):
     progress_bar['value'] = (downloaded / total_length) * 100
     progress_window.update_idletasks()
 
-def download_update(version):
+def download_update(version,url):
     # 下载最新版本
     headers = {
         'Authorization': f'token {GIT_TOKEN}',
+        'Range': 'bytes=0-'
     }
-    url = f"https://github.com/zhzhpig/Youtube_py/releases/download/{version}/youtube.exe"
     # 指定下载的文件路径
-    file_path = f"youtube_{version}.exe"  # 您可以根据需要更改此路径
-    if os.path.exists(file_path):
-        os.remove(file_path)
+    file_path = f"youtube_{version}.exe"
     # 设置重试策略
     retry_strategy = Retry(
         total=3,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["HEAD", "GET"],
-        backoff_factor=5
+        backoff_factor=10
     )
     adapter = HTTPAdapter(max_retries=retry_strategy)
     http = requests.Session()
     http.mount("https://", adapter)
     http.mount("http://", adapter)
+    downloaded = 0
+    # 检查文件是否存在以及已下载了多少内容
+    if os.path.exists(file_path):
+        downloaded = os.path.getsize(file_path)
+        if downloaded > 0:
+            # 设置初始位置
+            headers['Range'] = f'bytes={downloaded}-'
+            logger.info(f"已下载{downloaded}字节，文件{file_path}已存在，开始续传...")
 
     try:
         # 开始下载文件
         response = http.get(url, stream=True, headers=headers, timeout=120)
-        if response.status_code == 200:
+        if response.status_code == 200 or response.status_code == 206:
             # 获取文件大小
             total_length = int(response.headers.get('content-length', 0))
-            print(f"文件大小: {total_length} bytes")
             # 创建下载进度弹窗
             progress_window = tk.Toplevel(root)
             progress_window.title("更新下载中")
@@ -839,7 +869,7 @@ def download_update(version):
             label.pack(pady=5)
 
             # 在新线程中执行下载
-            download_thread = threading.Thread(target=download_file, args=(response,version,file_path, total_length, progress_bar, progress_window))
+            download_thread = threading.Thread(target=download_file, args=(response,downloaded,version,file_path, total_length, progress_bar, progress_window))
             download_thread.start()
         else:
             logger.error(f"请求更新下载地址{url}失败，错误为{response.status_code}")
@@ -847,13 +877,55 @@ def download_update(version):
     except Exception as e:
         logger.error(f"下载最新版本失败，错误为{e}")
         error_log.append(f"下载最新版本失败，错误为{e}")
-
-
+# 获取更新日志
+def fetch_github_releases():
+    url = version_url
+    headers = {
+        'Authorization': f'token {GIT_TOKEN}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    try:
+        logger.info("获取最新更新日志...")
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            releases = response.json()
+            logger.info("获取最新更新日志成功!")
+            return releases
+        else:
+            logger.error(f"请求最新更新日志失败，错误码: {response.status_code}")
+            error_log.append(f"请求最新更新日志失败，错误码: {response.status_code}")
+            return []
+    except Exception as e:
+        logger.error(f"获取最新更新日志失败: {e}")
+        error_log.append(f"获取最新更新日志失败: {e}")
+        return []
+def parse_releases(releases):
+    app_uplog = {}
+    for release in releases:
+        tag_name = release['tag_name']
+        body = release['body'].strip()  # 去除首尾空白字符
+        app_uplog[tag_name] = body
+    
+    # 定义一个函数来解析版本号为元组
+    def parse_version(version_str):
+        return tuple(map(int, (version_str[1:].split('.') if version_str.startswith('v') else version_str.split('.'))))
+    
+    # 对版本号进行排序
+    sorted_app_uplog = dict(sorted(app_uplog.items(), key=lambda item: parse_version(item[0])))
+    
+    return sorted_app_uplog
+def update_app_uplog_from_github():
+    global app_uplog
+    releases = fetch_github_releases()
+    new_updates = parse_releases(releases)
+    app_uplog.update(new_updates)
+    update_complete.set()
 
 if __name__ == '__main__':
     # 全局变量
     global_thread = None
     stop_event = threading.Event()
+    update_complete = threading.Event()
     should_stop = False
     default_img_directory = 'analysisImg'
     default_file_directory = 'YouTubeData'
@@ -866,10 +938,14 @@ if __name__ == '__main__':
     default_word_pos = ['n','d','NN','NNS','v','a','JJR','JJS','r','j']
     GIT_TOKEN = os.environ.get('GITHUB_TOKEN')
     # 版本信息
-    app_version = 'v1.9.3'
+    app_author = 'zhzhpig'
+    app_name = 'Youtube_py'
+    version_url = f"https://api.github.com/repos/{app_author}/{app_name}/releases"
+    app_version = 'v2.2.1'
+    app_addr = f'https://github.com/{app_author}/{app_name}/'
     app_title = f'爬YouTube评论软件{app_version} | 论文版'
-    app_copyright = '版权所有 © 2024-2050 zhzhpig Technologies Co., Ltd. All rights reserved.'
-    app_contact = 'zhzhpig@163.com'
+    app_copyright = f'版权所有 © 2024-2050 {app_author} Technologies Co., Ltd. All rights reserved.'
+    app_contact = f'{app_author}@163.com'
     app_content = "本软件是一个用于分析YouTube评论的Python软件，可以分析评论情感、评论内容、评论时间、评论者，生成评论情感分析报告，并支持导出为Excel表格。"
     app_uplog = {
         'v1.0':'根据API爬取评论，生成表格',
@@ -883,9 +959,7 @@ if __name__ == '__main__':
         'v1.8':'增加常见问题和图片双击事件',
         'v1.9':'增加窗口绑定esc删除事件',
         'v1.9.1':'优化饼状图绘制的图形界面',
-        'v1.9.2':'自动获取修改日期',
-        'v1.9.3':'增加内外层饼状图，按百分比分离低频率数据',
-        'v2.0':'新增版本控制和自动更新检测功能'
+        'v1.9.2':'自动获取修改日期'
     }
     default_question_usual = [
         {
@@ -905,7 +979,6 @@ if __name__ == '__main__':
     last_modified_time = os.path.getmtime(file_path)
 
     app_last_update = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_modified_time))
-    app_author = 'zhzhpig'
     # 初始化情感分析器
     analyzer = SentimentIntensityAnalyzer()
     # 定义英文到中文的情绪映射
@@ -1090,7 +1163,7 @@ if __name__ == '__main__':
     def show_help():
         about_window = tk.Toplevel(root)
         about_window.title("关于我们")
-        about_window.geometry("500x400")  # 增加窗口大小
+        about_window.geometry("500x450")  # 增加窗口大小
         about_window.resizable(False, False)
         about_window.iconbitmap(icon_path)
         # 绑定 ESC 键事件
@@ -1121,23 +1194,29 @@ if __name__ == '__main__':
         version_label.grid(row=1, column=1, sticky=tk.W, pady=(10, 0))
 
         # 创建一个标签介绍功能
-        website_label = ttk.Label(about_frame, text=f"软件功能介绍：{app_content}", cursor="hand2", foreground="blue", font=menu_font,style="white.TLabel", wraplength=max_width)
+        website_label = ttk.Label(about_frame, text=f"软件功能介绍：{app_content}", cursor="hand2", font=menu_font,style="white.TLabel", wraplength=max_width)
         website_label.grid(row=2, column=1, sticky=tk.W, pady=(10, 0))
+
+        # 创建一个按钮介绍功能
+        website_label = ttk.Label(about_frame, text=f"应用主页：{app_addr}", cursor="hand2", foreground="blue", font=menu_font, style="white.TLabel", wraplength=max_width)
+        website_label.grid(row=3, column=1, sticky=tk.W, pady=(10, 0))
+        website_label.bind("<Button-1>", lambda event: do_open_url(app_addr))
+
 
         # 添加一条分割线
         separator = ttk.Separator(about_frame, orient=tk.HORIZONTAL)
-        separator.grid(row=3, column=1, sticky=tk.EW, pady=(20, 0))
+        separator.grid(row=4, column=1, sticky=tk.EW, pady=(20, 0))
 
         # 创建一个标签来显示联系方式
         contact_label = ttk.Label(about_frame, text=f"联系我们：{app_contact}", font=menu_font,style="white.TLabel", wraplength=max_width)
-        contact_label.grid(row=4, column=1, sticky=tk.W, pady=(10, 0))
+        contact_label.grid(row=5, column=1, sticky=tk.W, pady=(10, 0))
 
         # 添加作者信息
         author_label = ttk.Label(about_frame, text=f"作者：{app_author}", font=menu_font,style="white.TLabel", wraplength=max_width)
-        author_label.grid(row=5, column=1, sticky=tk.W, pady=(10, 0))
+        author_label.grid(row=6, column=1, sticky=tk.W, pady=(10, 0))
         # 创建确定按钮
         ttk.Button(about_window, text="关闭", command=lambda:about_window.destroy()).pack(side="bottom", pady=10)
-
+    
     def show_update_log():
         update_log_window = tk.Toplevel(root)
         update_log_window.title("更新日志")
@@ -1161,14 +1240,32 @@ if __name__ == '__main__':
         # 配置滚动条
         scrollbar.config(command=update_log_text.yview)
 
-        # 将更新日志填充到文本框中
-        for version, log in app_uplog.items():
-            update_log_text.insert(tk.END, f"版本号：{version}\n更新内容：{log}\n\n")
+        # 加载提示
+        loading_label = tk.Label(update_log_frame, text="日志加载中...", font=("Arial", 10))
+        loading_label.pack(fill=tk.X)
+        
+        # 在新线程更新 app_uplog
+        if not app_uplog.get(app_version):
+            update_app_uplog_thread = threading.Thread(target=update_app_uplog_from_github)
+            update_app_uplog_thread.start()
+        else:
+            update_complete.set()
+        def check_update_complete():
+            if update_complete.is_set():
+                # 清除加载动画
+                loading_label.pack_forget()
+                # 将更新日志填充到文本框中
+                for version, log in app_uplog.items():
+                    update_log_text.insert(tk.END, f"版本号：{version}\n更新内容：{log}\n\n")
+                # 禁止编辑文本框
+                update_log_text.config(state=tk.DISABLED)
+                # 创建确定按钮
+                ttk.Button(update_log_window, text="关闭", command=lambda:update_log_window.destroy()).pack(side="bottom", pady=10)
+            else:
+                # 如果更新未完成，则继续检查
+                update_log_window.after(100, check_update_complete)
 
-        # 禁止编辑文本框
-        update_log_text.config(state=tk.DISABLED)
-        # 创建确定按钮
-        ttk.Button(update_log_window, text="关闭", command=lambda:update_log_window.destroy()).pack(side="bottom", pady=10)
+        check_update_complete()
 
     def show_question_usual():
         question_usual = load_questions_from_file(os.path.join(default_question_usual_directory, default_question_usual_txt)) or default_question_usual
@@ -1280,6 +1377,7 @@ if __name__ == '__main__':
 
     # 帮助菜单
     help_menu = tk.Menu(menu_bar, tearoff=0)
+    help_menu.add_command(label="访问主页",command=lambda:do_open_url(app_addr))
     help_menu.add_command(label="关于我们",command=show_help,accelerator='CTRL+B')
     help_menu.add_cascade(label="常见问题",command=show_question_usual,accelerator='CTRL+H')
     help_menu.add_command(label="更新日志",command=show_update_log,accelerator='CTRL+U')
@@ -1452,7 +1550,9 @@ if __name__ == '__main__':
     stop_button.place(x=435, y=640, width=150, height=30)
     
     root.protocol("WM_DELETE_WINDOW", on_exit)
-    # 检查更新
-    check_for_updates()
+    # 在新线程中执行检查更新
+    check_update_thread = threading.Thread(target=check_for_updates)
+    check_update_thread.start()
+    
     # 运行主循环
     root.mainloop()
