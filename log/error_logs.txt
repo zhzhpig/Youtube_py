@@ -1,2 +1,0 @@
-日志创建时间：2024-08-19 16:20:29
-请求失败！错误为：HTTPSConnectionPool(host='www.googleapis.com', port=443): Max retries exceeded with url: /youtube/v3/commentThreads?part=snippet%2Creplies&videoId=ecxUsur_YLM&maxResults=20&order=time&textFormat=plainText&key=AIzaSyAqexAFKpWPgDR-4T_Fip2TWRBu9yIww9c (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x0000018435108F80>, 'Connection to www.googleapis.com timed out. (connect timeout=5)'))
